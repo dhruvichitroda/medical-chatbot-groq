@@ -1,0 +1,27 @@
+# Environment variables - NEVER commit this!
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# VS Code
+.vscode/
+
+# HuggingFace model cache (large files)
+~/.cache/huggingface/
+
+# Data files (PDFs may be large)
+# data/    ← uncomment if you don't want PDFs in git
+
+# Logs
+*.log

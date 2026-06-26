@@ -1,0 +1,79 @@
+name: Deploy Medical Chatbot (Groq) to EC2
+
+on:
+  push:
+    branches: [main]
+
+
+jobs:
+  # ──────────────────────────────────────────────
+  # JOB 1: Build Docker image and push to AWS ECR
+  # ──────────────────────────────────────────────
+  Continuous-Integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, Tag, and Push Docker Image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPO }}
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+  # ──────────────────────────────────────────────
+  # JOB 2: Pull image on EC2 and run container
+  # ──────────────────────────────────────────────
+  Continuous-Deployment:
+    needs: Continuous-Integration
+    runs-on: self-hosted       # ← your EC2 machine acts as GitHub runner
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Stop and Remove Old Container (if running)
+        run: |
+          docker stop medicalbot || true
+          docker rm medicalbot || true
+
+      - name: Pull Latest Docker Image from ECR
+        run: |
+          docker pull "${{ steps.login-ecr.outputs.registry }}"/"${{ secrets.ECR_REPO }}":latest
+
+      - name: Run Docker Container with Environment Variables
+        run: |
+          docker run -d \
+            --name medicalbot \
+            -p 8080:8080 \
+            -e PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" \
+            -e GROQ_API_KEY="${{ secrets.GROQ_API_KEY }}" \
+            "${{ steps.login-ecr.outputs.registry }}"/"${{ secrets.ECR_REPO }}":latest
